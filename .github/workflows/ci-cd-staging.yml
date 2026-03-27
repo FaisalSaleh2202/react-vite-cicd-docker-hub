@@ -1,4 +1,4 @@
-name: CD - Staging
+name: CI-CD - Staging
 
 on:
   push:
@@ -6,12 +6,34 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: cd-staging-${{ github.ref }}
+  group: ci-cd-staging-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-and-push:
+  ci:
+    name: CI - Build Validation
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build app
+        run: npm run build
+
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: ci
 
     outputs:
       image_tag: ${{ steps.meta.outputs.image_tag }}
@@ -50,6 +72,7 @@ jobs:
             ${{ vars.DOCKERHUB_USERNAME }}/${{ vars.APP_NAME }}:${{ steps.meta.outputs.image_tag }}
 
   deploy:
+    name: Deploy to VPS
     runs-on: ubuntu-latest
     needs: build-and-push
 
@@ -65,8 +88,17 @@ jobs:
 
             IMAGE="${{ vars.DOCKERHUB_USERNAME }}/${{ vars.APP_NAME }}:${{ needs.build-and-push.outputs.image_tag }}"
             CONTAINER_NAME="react-vite-app"
+            PORT="8080"
 
-            echo "Deploying image: $IMAGE"
+            echo "Deploying new image: $IMAGE"
+
+            OLD_IMAGE=$(docker inspect --format='{{.Config.Image}}' "$CONTAINER_NAME" 2>/dev/null || true)
+
+            if [ -n "$OLD_IMAGE" ]; then
+              echo "Current running image: $OLD_IMAGE"
+            else
+              echo "No existing container found. First deployment or container missing."
+            fi
 
             docker pull "$IMAGE"
 
@@ -75,8 +107,39 @@ jobs:
             docker run -d \
               --name "$CONTAINER_NAME" \
               --restart unless-stopped \
-              -p 8080:80 \
+              -p ${PORT}:80 \
               "$IMAGE"
 
+            echo "Waiting for container to be ready..."
             sleep 5
-            docker ps
+
+            if curl -f "http://localhost:${PORT}" > /dev/null 2>&1; then
+              echo "Health check success. Deployment completed."
+            else
+              echo "Health check failed. Starting rollback..."
+
+              docker logs "$CONTAINER_NAME" || true
+              docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+              if [ -n "$OLD_IMAGE" ]; then
+                echo "Rolling back to previous image: $OLD_IMAGE"
+
+                docker run -d \
+                  --name "$CONTAINER_NAME" \
+                  --restart unless-stopped \
+                  -p ${PORT}:80 \
+                  "$OLD_IMAGE"
+
+                sleep 5
+
+                if curl -f "http://localhost:${PORT}" > /dev/null 2>&1; then
+                  echo "Rollback success."
+                else
+                  echo "Rollback failed too."
+                  exit 1
+                fi
+              else
+                echo "Rollback not possible because no previous image exists."
+                exit 1
+              fi
+            fi
