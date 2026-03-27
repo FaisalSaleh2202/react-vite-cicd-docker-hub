@@ -1,0 +1,53 @@
+name: Rollback - Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag image yang ingin di-rollback, contoh: sha-2335913"
+        required: true
+        type: string
+
+concurrency:
+  group: rollback-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Rollback on VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            IMAGE="${{ vars.DOCKERHUB_USERNAME }}/${{ vars.APP_NAME }}:${{ inputs.image_tag }}"
+            CONTAINER_NAME="react-vite-app"
+            PORT="8080"
+
+            echo "Rolling back to image: $IMAGE"
+
+            docker pull "$IMAGE"
+
+            docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+            docker run -d \
+              --name "$CONTAINER_NAME" \
+              --restart unless-stopped \
+              -p ${PORT}:80 \
+              "$IMAGE"
+
+            sleep 5
+
+            if curl -f "http://localhost:${PORT}" > /dev/null 2>&1; then
+              echo "Manual rollback success."
+            else
+              echo "Manual rollback failed."
+              docker logs "$CONTAINER_NAME" || true
+              exit 1
+            fi
