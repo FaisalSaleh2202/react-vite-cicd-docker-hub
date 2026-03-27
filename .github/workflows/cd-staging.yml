@@ -34,6 +34,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: DEBUG IMAGE NAME
+        run: |
+          echo "USERNAME = ${{ secrets.DOCKERHUB_USERNAME }}"
+          echo "APP_NAME = ${{ secrets.APP_NAME }}"
+          echo "FINAL IMAGE = ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.APP_NAME }}"
+
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
