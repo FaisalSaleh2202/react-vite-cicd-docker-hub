@@ -18,8 +18,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set image tag
-        id: vars
         run: echo "IMAGE_TAG=sha-${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+      - name: Show target image
+        run: |
+          echo "DOCKER IMAGE = ${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.APP_NAME }}"
+          echo "COMMIT TAG    = sha-${GITHUB_SHA::7}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
