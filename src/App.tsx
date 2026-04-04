@@ -18,7 +18,10 @@ function App() {
         <div>
           <h1>Get started</h1>
           <h2>CI CD github actions denggan docker hub dan vps berhasil</h2>
-          <h2>CI CD github actions dengan docker registry dan vps berhasil</h2>
+          <h2>
+            CI CD github actions dengan docker registry dan vps berhasil: test
+            push
+          </h2>
           <p>
             Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
           </p>
