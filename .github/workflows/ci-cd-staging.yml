@@ -80,5 +80,69 @@ jobs:
     needs: build-and-push
 
     steps:
-      - name: Skip deploy for now
-        run: echo "Step 2 fokus publish ke GHCR dulu"
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -e
+
+            IMAGE="ghcr.io/faisalsaleh2202/react-vite-app:${{ needs.build-and-push.outputs.image_tag }}"
+            CONTAINER_NAME="react-vite-app"
+            PORT="8080"
+
+            echo "Deploying new image: $IMAGE"
+
+            OLD_IMAGE=$(docker inspect --format='{{.Config.Image}}' "$CONTAINER_NAME" 2>/dev/null || true)
+
+            if [ -n "$OLD_IMAGE" ]; then
+              echo "Current running image: $OLD_IMAGE"
+            else
+              echo "No existing container found. First deployment or container missing."
+            fi
+
+            docker pull "$IMAGE"
+
+            docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+            docker run -d \
+              --name "$CONTAINER_NAME" \
+              --restart unless-stopped \
+              -p ${PORT}:80 \
+              "$IMAGE"
+
+            echo "Waiting for container to be ready..."
+            sleep 5
+
+            if curl -f "http://localhost:${PORT}" > /dev/null 2>&1; then
+              echo "Health check success. Deployment completed."
+            else
+              echo "Health check failed. Starting rollback..."
+
+              docker logs "$CONTAINER_NAME" || true
+              docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+              if [ -n "$OLD_IMAGE" ]; then
+                echo "Rolling back to previous image: $OLD_IMAGE"
+
+                docker run -d \
+                  --name "$CONTAINER_NAME" \
+                  --restart unless-stopped \
+                  -p ${PORT}:80 \
+                  "$OLD_IMAGE"
+
+                sleep 5
+
+                if curl -f "http://localhost:${PORT}" > /dev/null 2>&1; then
+                  echo "Rollback success."
+                else
+                  echo "Rollback failed too."
+                  exit 1
+                fi
+              else
+                echo "Rollback not possible because no previous image exists."
+                exit 1
+              fi
+            fi
